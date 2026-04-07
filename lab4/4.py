@@ -1,7 +1,7 @@
 import speech_recognition
 from speech_recognition.recognizers.whisper_local.whisper import recognize as recognize_whisper
 
-# Monkey-patching due to try-except block in library
+# Monkey-patching due to poor written try-except block in library
 speech_recognition.Recognizer.recognize_whisper = recognize_whisper  # pyright: ignore[reportAttributeAccessIssue]
 
 recognizer = speech_recognition.Recognizer()
@@ -17,4 +17,4 @@ else:
 	if len(text) > 0:
 		print(f"You said: {text}")
 	else:
-		print("No words detected")
+		print("No words were detected")
