@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from contextlib import suppress
 from threading import Lock
 from typing import TYPE_CHECKING
 
@@ -25,9 +24,8 @@ class SharedMemory():
 		with self.__lock:
 			self.__memory[address] = value
 
-			with suppress(KeyError):
-				for proc in self.__processors:
-					if proc == writer:
-						continue
+			for proc in self.__processors:
+				if proc == writer:
+					continue
 
-					proc.invalidate_cache(address)
+				proc.invalidate_cache(address)
