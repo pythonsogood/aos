@@ -2,6 +2,9 @@ from enum import Enum
 from typing import NamedTuple
 
 
+type ProcessorID = int
+
+
 class MSIState(Enum):
 	MODIFIED = 1
 	SHARED = 0
@@ -55,7 +58,7 @@ class SharedMemory():
 
 
 class Processor():
-	def __init__(self, processor_id: int, shared_memory: SharedMemory, bus: "Bus") -> None:
+	def __init__(self, processor_id: ProcessorID, shared_memory: SharedMemory, bus: "Bus") -> None:
 		self.__processor_id = processor_id
 		self.__shared_memory = shared_memory
 		self.__cache: dict[int, CacheLine] = {}
@@ -141,20 +144,20 @@ class Bus():
 
 		return processor
 
-	def invalidate_others(self, processor_id: int, address: int) -> None:
+	def invalidate_others(self, processor_id: ProcessorID, address: int) -> None:
 		for processor in self.__processors:
 			if processor.processor_id == processor_id:
 				continue
 
 			processor.invalidate(address)
 
-	def read(self, processor_id: int, address: int) -> int:
+	def read(self, processor_id: ProcessorID, address: int) -> int:
 		if processor_id > len(self.__processors):
 			raise IndexError(f"Processor with id {processor_id} does not exist")
 
 		return self.__processors[processor_id].read(address)
 
-	def write(self, processor_id: int, address: int, value: int) -> None:
+	def write(self, processor_id: ProcessorID, address: int, value: int) -> None:
 		if processor_id > len(self.__processors):
 			raise IndexError(f"Processor with id {processor_id} does not exist")
 
@@ -163,4 +166,4 @@ class Bus():
 
 class Statistics():
 	def __init__(self) -> None:
-		self.__stats = {}
+		self.__stats: dict[ProcessorID, float] = {}
