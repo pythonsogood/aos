@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import NamedTuple
+from typing import NamedTuple, TypedDict
 
 
 type ProcessorID = int
@@ -14,6 +14,15 @@ class MSIState(Enum):
 class CacheSnapshot(NamedTuple):
 	value: int
 	state: MSIState
+
+
+class ProcessorStats(TypedDict):
+	reads: int
+	writes: int
+	cache_hits: int
+	cache_misses: int
+	invalidations: int
+	write_backs: int
 
 
 class CacheLine():
@@ -166,4 +175,38 @@ class Bus():
 
 class Statistics():
 	def __init__(self) -> None:
-		self.__stats: dict[ProcessorID, float] = {}
+		self.__stats: dict[ProcessorID, ProcessorStats] = {}
+
+	def _record(self, processor_id: ProcessorID, name: str) -> None:
+		if processor_id not in self.__stats:
+			self.__stats[processor_id] = ProcessorStats(
+				reads=0,
+				writes=0,
+				cache_hits=0,
+				cache_misses=0,
+				invalidations=0,
+				write_backs=0,
+			)
+
+		self.__stats[processor_id][name] += 1
+
+	def record_read(self, processor_id: ProcessorID) -> None:
+		self._record(processor_id, "reads")
+
+	def record_write(self, processor_id: ProcessorID) -> None:
+		self._record(processor_id, "writes")
+
+	def record_cache_hit(self, processor_id: ProcessorID) -> None:
+		self._record(processor_id, "cache_hits")
+
+	def record_cache_miss(self, processor_id: ProcessorID) -> None:
+		self._record(processor_id, "cache_misses")
+
+	def record_invalidation(self, processor_id: ProcessorID) -> None:
+		self._record(processor_id, "invalidations")
+
+	def record_write_back(self, processor_id: ProcessorID) -> None:
+		self._record(processor_id, "write_backs")
+
+	def snapshot(self) -> dict[ProcessorID, ProcessorStats]:
+		return dict(self.__stats)
