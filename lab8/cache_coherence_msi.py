@@ -1,5 +1,6 @@
+from collections.abc import Iterable
 from enum import Enum
-from typing import NamedTuple, TypedDict
+from typing import Literal, NamedTuple, TypedDict
 
 
 type ProcessorID = int
@@ -10,9 +11,15 @@ class MSIState(Enum):
 	SHARED = 0
 	INVALID = -1
 
+	def __str__(self) -> str:
+		return self.name[0] if self.name else self.name
+
+	def __repr__(self) -> str:
+		return f"'{self}'"
+
 
 class CacheSnapshot(NamedTuple):
-	value: int
+	value: int | None
 	state: MSIState
 
 
@@ -26,7 +33,7 @@ class ProcessorStats(TypedDict):
 
 
 class CacheLine():
-	def __init__(self, address: int, value: int = 0) -> None:
+	def __init__(self, address: int, value: int | None = None) -> None:
 		self.__address = address
 		self.__value = value
 		self.__state = None
@@ -36,11 +43,11 @@ class CacheLine():
 		return self.__address
 
 	@property
-	def value(self) -> int:
+	def value(self) -> int | None:
 		return self.__value
 
 	@value.setter
-	def value(self, new_value: int) -> None:
+	def value(self, new_value: int | None) -> None:
 		self.__value = new_value
 
 	@property
@@ -60,10 +67,10 @@ class SharedMemory():
 	def memory(self) -> dict[int, int]:
 		return self.__memory
 
-	def read(self, address: int) -> int:
-		return self.memory.get(address, 0)
+	def read(self, address: int) -> int | None:
+		return self.memory.get(address)
 
-	def write(self, address: int, value: int) -> None:
+	def write(self, address: int, value: int | None = None) -> None:
 		self.memory[address] = value
 
 	def snapshot(self) -> dict[int, int]:
@@ -96,7 +103,7 @@ class Processor():
 	def statistics(self) -> "Statistics":
 		return self.bus.statistics
 
-	def read(self, address: int) -> int:
+	def read(self, address: int) -> int | None:
 		self.statistics.record_read(self.processor_id)
 
 		line = self.cache.get(address)
@@ -119,7 +126,7 @@ class Processor():
 
 		return value
 
-	def write(self, address: int, value: int) -> None:
+	def write(self, address: int, value: int | None = None) -> None:
 		self.statistics.record_write(self.processor_id)
 
 		line = self.cache.get(address)
@@ -169,7 +176,7 @@ class Processor():
 	def cache_snapshot(self) -> dict[int, CacheSnapshot]:
 		return {
 			line.address: CacheSnapshot(value=line.value, state=line.state)
-			for line in sorted(self.__cache.values(), key=lambda x: hex(x.address))
+			for line in sorted(self.__cache.values(), key=lambda x: x.address)
 		}
 
 
@@ -194,7 +201,6 @@ class Bus():
 	def add_processor(self) -> Processor:
 		processor = Processor(
 			(self.processors[-1].processor_id + 1) if self.processors else 0,
-			self.shared_memory,
 			self
 		)
 
@@ -209,13 +215,13 @@ class Bus():
 
 			processor.invalidate(address)
 
-	def read(self, processor_id: ProcessorID, address: int) -> int:
+	def read(self, processor_id: ProcessorID, address: int) -> int | None:
 		if processor_id > len(self.processors):
 			raise IndexError(f"Processor with id {processor_id} does not exist")
 
 		return self.processors[processor_id].read(address)
 
-	def write(self, processor_id: ProcessorID, address: int, value: int) -> None:
+	def write(self, processor_id: ProcessorID, address: int, value: int | None = None) -> None:
 		if processor_id > len(self.processors):
 			raise IndexError(f"Processor with id {processor_id} does not exist")
 
@@ -263,3 +269,64 @@ class Statistics():
 
 	def snapshot(self) -> dict[ProcessorID, ProcessorStats]:
 		return dict(self.stats)
+
+
+if __name__ == "__main__":
+	class Workload(NamedTuple):
+		processor: str
+		operation: Literal["READ", "WRITE"]
+		address: str
+		value: int | None
+
+
+	def run_workload(workload: Iterable[Workload]) -> Bus:
+		NUM_PROCESSORS = 0
+
+		for work in workload:
+			NUM_PROCESSORS = max(NUM_PROCESSORS, int(work[0][1:]))
+
+		bus = Bus()
+
+		for _ in range(NUM_PROCESSORS):
+			bus.add_processor()
+
+		for work in workload:
+			match work[1]:
+				case "READ":
+					bus.read(int(work[0][1:]) - 1, int(work[2], 16))
+				case "WRITE":
+					bus.write(int(work[0][1:]) - 1, int(work[2], 16), work[3])
+
+		return bus
+
+
+	def main() -> None:
+		WORKLOAD: list[Workload] = [
+			("P1", "READ",  "0x0001", None),
+			("P2", "READ",  "0x0001", None),
+			("P2", "WRITE", "0x0002", 30),
+			("P1", "WRITE", "0x0001", 20),
+			("P3", "READ",  "0x0001", None),
+			("P1", "READ",  "0x0002", None),
+			("P2", "READ",  "0x0002", None),
+			("P3", "WRITE", "0x0001", 55),
+			("P2", "READ",  "0x0001", None),
+			("P1", "WRITE", "0x0003", 10),
+			("P3", "READ",  "0x0003", None),
+			("P2", "WRITE", "0x0003", 99),
+			("P1", "READ",  "0x0003", None),
+		]
+
+		bus = run_workload(WORKLOAD)
+
+		for processor in bus.processors:
+			for line in list(processor.cache.values()):
+				if line.state == "M":
+					processor.flush(line.address)
+
+		print(bus.shared_memory.snapshot())
+		print({p.processor_id: p.cache_snapshot() for p in bus.processors})
+		print(bus.statistics.snapshot())
+
+
+	main()
