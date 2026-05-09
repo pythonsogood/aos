@@ -92,11 +92,21 @@ class Processor():
 	def shared_memory(self) -> SharedMemory:
 		return self.bus.shared_memory
 
+	@property
+	def statistics(self) -> "Statistics":
+		return self.bus.statistics
+
 	def read(self, address: int) -> int:
+		self.statistics.record_read(self.processor_id)
+
 		line = self.cache.get(address)
 
 		if line is not None and line.state != MSIState.INVALID:
+			self.statistics.record_cache_hit(self.processor_id)
+
 			return line.value
+
+		self.statistics.record_cache_miss(self.processor_id)
 
 		value = self.shared_memory.read(address)
 
@@ -110,11 +120,18 @@ class Processor():
 		return value
 
 	def write(self, address: int, value: int) -> None:
+		self.statistics.record_write(self.processor_id)
+
 		line = self.cache.get(address)
 
 		if line is not None and line.state == MSIState.MODIFIED:
+			self.statistics.record_cache_hit(self.processor_id)
+
 			line.value = value
+
 			return
+
+		self.statistics.record_cache_miss(self.processor_id)
 
 		if self.__bus is not None:
 			self.__bus.invalidate_others(self.processor_id, address)
@@ -135,6 +152,8 @@ class Processor():
 		if line.state == MSIState.MODIFIED:
 			self.flush(address)
 
+		self.statistics.record_invalidation(self.processor_id)
+
 		line.state = MSIState.INVALID
 
 	def flush(self, address: int) -> None:
@@ -142,6 +161,8 @@ class Processor():
 
 		if line is None or line.state != MSIState.MODIFIED:
 			return
+
+		self.statistics.record_write_back(self.processor_id)
 
 		self.shared_memory.write(address, line.value)
 
