@@ -56,20 +56,23 @@ class SharedMemory():
 	def __init__(self) -> None:
 		self.__memory: dict[int, int] = {}
 
+	@property
+	def memory(self) -> dict[int, int]:
+		return self.__memory
+
 	def read(self, address: int) -> int:
-		return self.__memory.get(address, 0)
+		return self.memory.get(address, 0)
 
 	def write(self, address: int, value: int) -> None:
-		self.__memory[address] = value
+		self.memory[address] = value
 
 	def snapshot(self) -> dict[int, int]:
-		return dict(self.__memory)
+		return dict(self.memory)
 
 
 class Processor():
-	def __init__(self, processor_id: ProcessorID, shared_memory: SharedMemory, bus: "Bus") -> None:
+	def __init__(self, processor_id: ProcessorID, bus: "Bus") -> None:
 		self.__processor_id = processor_id
-		self.__shared_memory = shared_memory
 		self.__cache: dict[int, CacheLine] = {}
 		self.__bus: "Bus" = bus
 
@@ -77,25 +80,37 @@ class Processor():
 	def processor_id(self) -> int:
 		return self.__processor_id
 
+	@property
+	def cache(self) -> dict[int, CacheLine]:
+		return self.__cache
+
+	@property
+	def bus(self) -> "Bus":
+		return self.__bus
+
+	@property
+	def shared_memory(self) -> SharedMemory:
+		return self.bus.shared_memory
+
 	def read(self, address: int) -> int:
-		line = self.__cache.get(address)
+		line = self.cache.get(address)
 
 		if line is not None and line.state != MSIState.INVALID:
 			return line.value
 
-		value = self.__shared_memory.read(address)
+		value = self.shared_memory.read(address)
 
 		if line is not None:
 			line.value = value
 			line.state = MSIState.SHARED
 		else:
-			self.__cache[address] = CacheLine(address, value)
-			self.__cache[address].state = MSIState.SHARED
+			self.cache[address] = CacheLine(address, value)
+			self.cache[address].state = MSIState.SHARED
 
 		return value
 
 	def write(self, address: int, value: int) -> None:
-		line = self.__cache.get(address)
+		line = self.cache.get(address)
 
 		if line is not None and line.state == MSIState.MODIFIED:
 			line.value = value
@@ -108,11 +123,11 @@ class Processor():
 			line.value = value
 			line.state = MSIState.MODIFIED
 		else:
-			self.__cache[address] = CacheLine(address=address, value=value)
-			self.__cache[address].state = MSIState.MODIFIED
+			self.cache[address] = CacheLine(address=address, value=value)
+			self.cache[address].state = MSIState.MODIFIED
 
 	def invalidate(self, address: int) -> None:
-		line = self.__cache.get(address)
+		line = self.cache.get(address)
 
 		if line is None or line.state == MSIState.INVALID:
 			return
@@ -123,12 +138,12 @@ class Processor():
 		line.state = MSIState.INVALID
 
 	def flush(self, address: int) -> None:
-		line = self.__cache.get(address)
+		line = self.cache.get(address)
 
 		if line is None or line.state != MSIState.MODIFIED:
 			return
 
-		self.__shared_memory.write(address, line.value)
+		self.shared_memory.write(address, line.value)
 
 	def cache_snapshot(self) -> dict[int, CacheSnapshot]:
 		return {
@@ -140,42 +155,59 @@ class Processor():
 class Bus():
 	def __init__(self) -> None:
 		self.__shared_memory = SharedMemory()
+		self.__statistics = Statistics()
 		self.__processors: list[Processor] = []
+
+	@property
+	def shared_memory(self) -> SharedMemory:
+		return self.__shared_memory
+
+	@property
+	def statistics(self) -> "Statistics":
+		return self.__statistics
+
+	@property
+	def processors(self) -> list[Processor]:
+		return self.__processors
 
 	def add_processor(self) -> Processor:
 		processor = Processor(
-			(self.__processors[-1].processor_id + 1) if self.__processors else 0,
-			self.__shared_memory,
+			(self.processors[-1].processor_id + 1) if self.processors else 0,
+			self.shared_memory,
 			self
 		)
 
-		self.__processors.append(processor)
+		self.processors.append(processor)
 
 		return processor
 
 	def invalidate_others(self, processor_id: ProcessorID, address: int) -> None:
-		for processor in self.__processors:
+		for processor in self.processors:
 			if processor.processor_id == processor_id:
 				continue
 
 			processor.invalidate(address)
 
 	def read(self, processor_id: ProcessorID, address: int) -> int:
-		if processor_id > len(self.__processors):
+		if processor_id > len(self.processors):
 			raise IndexError(f"Processor with id {processor_id} does not exist")
 
-		return self.__processors[processor_id].read(address)
+		return self.processors[processor_id].read(address)
 
 	def write(self, processor_id: ProcessorID, address: int, value: int) -> None:
-		if processor_id > len(self.__processors):
+		if processor_id > len(self.processors):
 			raise IndexError(f"Processor with id {processor_id} does not exist")
 
-		return self.__processors[processor_id].write(address, value)
+		return self.processors[processor_id].write(address, value)
 
 
 class Statistics():
 	def __init__(self) -> None:
 		self.__stats: dict[ProcessorID, ProcessorStats] = {}
+
+	@property
+	def stats(self) -> dict[ProcessorID, ProcessorStats]:
+		return self.__stats
 
 	def _record(self, processor_id: ProcessorID, name: str) -> None:
 		if processor_id not in self.__stats:
@@ -209,4 +241,4 @@ class Statistics():
 		self._record(processor_id, "write_backs")
 
 	def snapshot(self) -> dict[ProcessorID, ProcessorStats]:
-		return dict(self.__stats)
+		return dict(self.stats)
