@@ -1,0 +1,5 @@
+mode,workers,problem_size,runtime_seconds,speedup,efficiency
+Sequential,1,999999,0.797004,1.0,1.0
+Parallel,2,999999,0.577671,1.379685,0.689843
+Parallel,4,999999,0.354608,2.247562,0.56189
+Parallel,8,999999,0.212209,3.755752,0.469469
