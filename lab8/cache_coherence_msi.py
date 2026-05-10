@@ -7,12 +7,12 @@ type ProcessorID = int
 
 
 class MSIState(Enum):
-	MODIFIED = 1
-	SHARED = 0
-	INVALID = -1
+	MODIFIED = "M"
+	SHARED = "S"
+	INVALID = "I"
 
 	def __str__(self) -> str:
-		return self.name[0] if self.name else self.name
+		return self.value
 
 	def __repr__(self) -> str:
 		return f"'{self}'"
@@ -21,6 +21,17 @@ class MSIState(Enum):
 class CacheSnapshot(NamedTuple):
 	value: int | None
 	state: MSIState
+
+
+class OperationLog(NamedTuple):
+	step: int
+	processor: str
+	operation: Literal["READ", "WRITE"]
+	address: str
+	value: int | None
+	result: str
+	state_change: str
+	note: str
 
 
 class ProcessorStats(TypedDict):
@@ -107,13 +118,36 @@ class Processor():
 		self.statistics.record_read(self.processor_id)
 
 		line = self.cache.get(address)
+		previous_state = line.state if line is not None and line.state is not None else MSIState.INVALID
 
 		if line is not None and line.state != MSIState.INVALID:
 			self.statistics.record_cache_hit(self.processor_id)
+			self.bus.log(
+				f"P{self.processor_id}",
+				"READ",
+				address,
+				line.value,
+				"HIT",
+				f"{line.state} -> {line.state}",
+				"loaded from local cache",
+			)
 
 			return line.value
 
 		self.statistics.record_cache_miss(self.processor_id)
+		notes: list[str] = []
+
+		for processor in self.bus.processors:
+			if processor.processor_id == self.processor_id:
+				continue
+
+			other_line = processor.cache.get(address)
+			if other_line is None or other_line.state != MSIState.MODIFIED:
+				continue
+
+			processor.flush(address)
+			other_line.state = MSIState.SHARED
+			notes.append(f"P{self.processor_id} flushed 0x{address:04X} value={other_line.value} on read miss")
 
 		value = self.shared_memory.read(address)
 
@@ -124,17 +158,56 @@ class Processor():
 			self.cache[address] = CacheLine(address, value)
 			self.cache[address].state = MSIState.SHARED
 
+		self.bus.log(
+			f"P{self.processor_id}",
+			"READ",
+			address,
+			value,
+			"MISS",
+			f"{previous_state} -> {self.cache[address].state}",
+			"; ".join(notes) if notes else "loaded from shared memory",
+		)
+
 		return value
 
 	def write(self, address: int, value: int | None = None) -> None:
 		self.statistics.record_write(self.processor_id)
 
 		line = self.cache.get(address)
+		previous_state = line.state if line is not None and line.state is not None else MSIState.INVALID
 
 		if line is not None and line.state == MSIState.MODIFIED:
 			self.statistics.record_cache_hit(self.processor_id)
 
 			line.value = value
+			self.bus.log(
+				f"P{self.processor_id}",
+				"WRITE",
+				address,
+				value,
+				"HIT",
+				"M -> M",
+				"updated local modified line",
+			)
+
+			return
+
+		if line is not None and line.state == MSIState.SHARED:
+			self.statistics.record_cache_hit(self.processor_id)
+			if self.__bus is not None:
+				self.__bus.invalidate_others(self.processor_id, address)
+
+			line.value = value
+			line.state = MSIState.MODIFIED
+			self.bus.log(
+				f"P{self.processor_id}",
+				"WRITE",
+				address,
+				value,
+				"HIT",
+				"S -> M",
+				"invalidated other copies",
+			)
 
 			return
 
@@ -150,6 +223,16 @@ class Processor():
 			self.cache[address] = CacheLine(address=address, value=value)
 			self.cache[address].state = MSIState.MODIFIED
 
+		self.bus.log(
+			f"P{self.processor_id}",
+			"WRITE",
+			address,
+			value,
+			"MISS",
+			f"{previous_state} -> {self.cache[address].state}",
+			"exclusive ownership acquired",
+		)
+
 	def invalidate(self, address: int) -> None:
 		line = self.cache.get(address)
 
@@ -161,7 +244,9 @@ class Processor():
 
 		self.statistics.record_invalidation(self.processor_id)
 
+		previous_state = line.state
 		line.state = MSIState.INVALID
+		self.bus.append_note(f"P{self.processor_id} {previous_state} -> {line.state} for 0x{address:04X}")
 
 	def flush(self, address: int) -> None:
 		line = self.cache.get(address)
@@ -185,6 +270,8 @@ class Bus():
 		self.__shared_memory = SharedMemory()
 		self.__statistics = Statistics()
 		self.__processors: list[Processor] = []
+		self.__logs: list[OperationLog] = []
+		self.__pending_notes: list[str] = []
 
 	@property
 	def shared_memory(self) -> SharedMemory:
@@ -197,6 +284,36 @@ class Bus():
 	@property
 	def processors(self) -> list[Processor]:
 		return self.__processors
+
+	@property
+	def logs(self) -> list[OperationLog]:
+		return self.__logs
+
+	def append_note(self, note: str) -> None:
+		self.__pending_notes.append(note)
+
+	def consume_notes(self) -> str:
+		notes = "; ".join(self.__pending_notes)
+		self.__pending_notes.clear()
+		return notes
+
+	def log(self, processor: str, operation: Literal["READ", "WRITE"], address: int, value: int | None, result: str, state_change: str, note: str) -> None:
+		pending_notes = self.consume_notes()
+		if pending_notes:
+			note = f"{note}; {pending_notes}" if note else pending_notes
+
+		self.__logs.append(
+			OperationLog(
+				step=len(self.__logs) + 1,
+				processor=processor,
+				operation=operation,
+				address=f"0x{address:04X}",
+				value=value,
+				result=result,
+				state_change=state_change,
+				note=note,
+			)
+		)
 
 	def add_processor(self) -> Processor:
 		processor = Processor(
@@ -216,13 +333,13 @@ class Bus():
 			processor.invalidate(address)
 
 	def read(self, processor_id: ProcessorID, address: int) -> int | None:
-		if processor_id > len(self.processors):
+		if processor_id >= len(self.processors):
 			raise IndexError(f"Processor with id {processor_id} does not exist")
 
 		return self.processors[processor_id].read(address)
 
 	def write(self, processor_id: ProcessorID, address: int, value: int | None = None) -> None:
-		if processor_id > len(self.processors):
+		if processor_id >= len(self.processors):
 			raise IndexError(f"Processor with id {processor_id} does not exist")
 
 		return self.processors[processor_id].write(address, value)
@@ -321,12 +438,21 @@ if __name__ == "__main__":
 
 		for processor in bus.processors:
 			for line in list(processor.cache.values()):
-				if line.state == "M":
+				if line.state == MSIState.MODIFIED:
 					processor.flush(line.address)
 
-		print(bus.shared_memory.snapshot())
-		print({p.processor_id: p.cache_snapshot() for p in bus.processors})
-		print(bus.statistics.snapshot())
+		print("Step Processor Op Address Value Result State change Note")
+		for log in bus.logs:
+			value = "-" if log.value is None else str(log.value)
+			print(
+				f"{log.step:>4} {log.processor:>9} {log.operation:>5} {log.address:>7} "
+				f"{value:>5} {log.result:>6} {log.state_change:>12} {log.note}"
+			)
+
+		memory = {f"0x{address:04X}": value for address, value in sorted(bus.shared_memory.snapshot().items())}
+
+		print(f"Final memory: {memory}")
+		print(f"Statistics: {bus.statistics.snapshot()}")
 
 
 	main()

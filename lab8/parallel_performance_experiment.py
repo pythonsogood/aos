@@ -17,7 +17,7 @@ def is_prime(number: int) -> bool:
 	if number % 2 == 0:
 		return False
 
-	for candidate in range(3, int(math.isqrt(number)) + 1, 2):
+	for candidate in range(3, math.isqrt(number) + 1, 2):
 		if number % candidate == 0:
 			return False
 
@@ -38,7 +38,6 @@ def run_sequential(lower: int, upper: int) -> tuple[list[int], float]:
 	primes = count_primes(lower, upper)
 
 	elapsed = time.perf_counter() - start_time
-
 	return primes, elapsed
 
 def run_parallel(lower: int, upper: int, workers: int) -> tuple[list[int], float]:
@@ -49,13 +48,12 @@ def run_parallel(lower: int, upper: int, workers: int) -> tuple[list[int], float
 		chunks.append((i, min(i + chunk_size - 1, upper)))
 
 	primes: list[int] = []
+	start_time = time.perf_counter()
 
 	with multiprocessing.Pool(processes=workers) as pool:
-		start_time = time.perf_counter()
-
 		primes += functools.reduce(lambda a, b: a + b, pool.starmap(count_primes, chunks))
 
-		elapsed = time.perf_counter() - start_time
+	elapsed = time.perf_counter() - start_time
 
 	return primes, elapsed
 
@@ -72,32 +70,33 @@ def main() -> None:
 
 	LOWER = 2
 	UPPER = 1_000_000
-	WORKERS = 8
 
-	primes, sequential_time = run_sequential(LOWER, UPPER)
+	problem_size = UPPER - LOWER + 1
+	available_cpus = multiprocessing.cpu_count()
+	worker_counts = tuple(workers for workers in (2, 4, 8) if workers <= available_cpus)
 
-	results: list[Result] = [
+	_, sequential_time = run_sequential(LOWER, UPPER)
+	results = [
 		Result(
-			mode="sequential",
+			mode="Sequential",
 			workers=1,
-			problem_size=len(primes),
+			problem_size=problem_size,
 			runtime_seconds=round(sequential_time, 6),
 			speedup=1.0,
 			efficiency=1.0,
 		)
 	]
 
-	for workers in range(2, min(WORKERS, multiprocessing.cpu_count()) + 1, 2):
-		parallel_primes, parallel_time = run_parallel(LOWER, UPPER, workers)
+	for workers in worker_counts:
+		_, parallel_time = run_parallel(LOWER, UPPER, workers)
 
 		speedup = sequential_time / parallel_time
 		efficiency = speedup / workers
-
 		results.append(
 			Result(
-				mode="parallel",
+				mode="Parallel",
 				workers=workers,
-				problem_size=len(parallel_primes),
+				problem_size=problem_size,
 				runtime_seconds=round(parallel_time, 6),
 				speedup=round(speedup, 6),
 				efficiency=round(efficiency, 6),
