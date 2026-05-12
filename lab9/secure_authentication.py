@@ -24,6 +24,9 @@ class User():
 	lock: int = 0
 	checksum: str = ""
 
+	def is_admin(self) -> bool:
+		return self.username == "admin" or self.username == "root"
+
 	def is_locked(self) -> bool:
 		now = datetime.datetime.now(datetime.timezone.utc)
 		lock_until = datetime.datetime.fromtimestamp(self.lock, datetime.timezone.utc)
@@ -70,7 +73,7 @@ class User():
 		return {k: v for k, v in x if k != "username"}
 
 class Database():
-	def __init__(self, filepath: os.PathLike) -> None:
+	def __init__(self, filepath: os.PathLike = "users.json") -> None:
 		self.__filepath = os.path.normpath(filepath)
 		self.__lock = threading.Lock()
 
@@ -224,6 +227,32 @@ class Database():
 		return user
 
 
+def prompt_login(db: Database) -> User | None:
+	username = input("Username: ")
+	password = getpass("Password: ", echo_char="*")
+
+	if username == "guest":
+		print("Access granted as a guest.")
+		return None
+
+	user = db.login_user(username, password)
+	print("Access granted.")
+
+	return user
+
+def prompt_register(db: Database) -> User:
+	username = input("Username: ")
+	password = getpass("Password: ", echo_char="*")
+
+	if username == "guest":
+		raise KeyError("User already exists.")
+
+	user = User.new(username, password)
+	db.register_user(user)
+	print("User successfully registered.")
+
+	return user
+
 def main() -> None:
 	parser = argparse.ArgumentParser(
 		prog="Secure Authentication",
@@ -232,32 +261,20 @@ def main() -> None:
 	parser.add_argument("action", nargs="?", choices=("login", "register"), default="login")
 	args = parser.parse_args()
 
-	db = Database("users.json")
+	db = Database()
 
 	match args.action:
 		case "login":
-			username = input("Username: ")
-			password = getpass("Password: ", echo_char="*")
-
 			try:
-				db.login_user(username, password)
+				prompt_login(db)
 			except ValueError as e:
 				print(e.args[0] if e.args else "Access denied.")
-			else:
-				print("Access granted.")
 
 		case "register":
-			username = input("Username: ")
-			password = getpass("Password: ", echo_char="*")
-
-			user = User.new(username, password)
-
 			try:
-				db.register_user(user)
+				prompt_register(db)
 			except KeyError as e:
 				print(e.args[0] if e.args else "User already exists.")
-			else:
-				print("User successfully registered.")
 
 
 if __name__ == "__main__":
