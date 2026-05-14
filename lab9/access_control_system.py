@@ -1,6 +1,6 @@
 from typing import ClassVar, Iterator
 
-from secure_authentication import User
+from secure_authentication import User, get_db, prompt_login
 
 
 class Permission():
@@ -159,6 +159,9 @@ def main() -> None:
 	permissions.write = True
 
 	try_permissions = Permission(read=True, write=True)
+
+	db = get_db()
+	user = prompt_login(db)
 
 	print(access_controller.has_permission(try_permissions, user))
 

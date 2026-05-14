@@ -253,6 +253,16 @@ def prompt_register(db: Database) -> User:
 
 	return user
 
+db = None
+
+def get_db() -> Database:
+	global db
+
+	if db is None:
+		db = Database()
+
+	return db
+
 def main() -> None:
 	parser = argparse.ArgumentParser(
 		prog="Secure Authentication",
@@ -261,7 +271,7 @@ def main() -> None:
 	parser.add_argument("action", nargs="?", choices=("login", "register"), default="login")
 	args = parser.parse_args()
 
-	db = Database()
+	db = get_db()
 
 	match args.action:
 		case "login":
