@@ -4,5 +4,6 @@ lab4/device_list.csv
 lab4/input.log
 lab9/users.json
 lab9/files/
+lab9/security_log.txt
 __pycache__/
 .ruff_cache/

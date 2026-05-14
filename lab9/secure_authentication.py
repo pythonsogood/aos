@@ -3,6 +3,7 @@ import datetime
 import hashlib
 import hmac
 import json
+import logging
 import os
 import threading
 from dataclasses import asdict, dataclass
@@ -11,7 +12,11 @@ from typing import ClassVar
 
 import bcrypt
 
+from security_logger import configure_logging
+
 type StrOrBytesPath = str | bytes | os.PathLike
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass()
@@ -236,10 +241,23 @@ def prompt_login(db: Database) -> User | None:
 
 	if username == "guest":
 		print("Access granted as a guest.")
+
+		logger.info(f"LOGIN SUCCESS: {username}")
 		return None
 
-	user = db.login_user(username, password)
+	try:
+		user = db.login_user(username, password)
+	except ValueError as e:
+		logger.info(f"LOGIN FAILED: {username}")
+
+		if "Account temporarily locked." in e.args[0]:
+			logger.warning(f"Multiple failed login attempts detected for user {username}")
+
+		raise
+
 	print("Access granted.")
+
+	logger.info(f"LOGIN SUCCESS: {username}")
 
 	return user
 
@@ -271,6 +289,8 @@ def get_db() -> Database:
 
 
 def main() -> None:
+	configure_logging(logger)
+
 	parser = argparse.ArgumentParser(
 		prog="Secure Authentication",
 		description="secure user authentication system using password hashing",

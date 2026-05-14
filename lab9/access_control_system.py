@@ -1,9 +1,19 @@
+import logging
 import os
-from typing import ClassVar, Iterator
+from typing import TYPE_CHECKING, ClassVar, Iterator
+
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import pad, unpad
 
 from secure_authentication import User, get_db, prompt_login
+from security_logger import configure_logging
+
+if TYPE_CHECKING:
+	from Crypto.Cipher._mode_cbc import Buffer
 
 type StrOrBytesPath = str | bytes | os.PathLike
+
+logger = logging.getLogger(__name__)
 
 
 class Permission:
@@ -126,11 +136,44 @@ class Permission:
 
 
 class FileObject:
+	AES_KEY: ClassVar[bytes] = b"\xb9\x194\x88\xae \xadB\xc3\xa2gY\xaf\x87D\x93"
+	AES_MODE: ClassVar = AES.MODE_CBC
+	AES_IV_LENGTH: ClassVar[int] = 16
+
 	def __init__(self, filepath: StrOrBytesPath) -> None:
 		self.__filepath = os.path.normpath(filepath)
 
 		if os.path.exists(self.__filepath) and not os.path.isfile(self.__filepath):
 			raise ValueError("filepath cannot point to directory")
+
+	@staticmethod
+	def __encrypt(data: bytes) -> tuple[bytes, Buffer]:
+		cipher = AES.new(FileObject.AES_KEY, FileObject.AES_MODE)
+
+		ciphertext = cipher.encrypt(pad(data, cipher.block_size))
+
+		return ciphertext, cipher.iv
+
+	@staticmethod
+	def __decrypt(data: bytes, iv: Buffer) -> bytes:
+		cipher = AES.new(FileObject.AES_KEY, FileObject.AES_MODE, iv=iv)
+
+		plaintext = unpad(cipher.decrypt(data), cipher.block_size)
+
+		return plaintext
+
+	@staticmethod
+	def __encrypt_file(data: bytes) -> bytes:
+		ciphertext, iv = FileObject.__encrypt(data)
+
+		return bytes(iv) + ciphertext
+
+	@staticmethod
+	def __decrypt_file(data: bytes) -> bytes:
+		iv = data[: FileObject.AES_IV_LENGTH]
+		ciphertext = data[FileObject.AES_IV_LENGTH :]
+
+		return FileObject.__decrypt(ciphertext, iv)
 
 	@property
 	def filepath(self) -> StrOrBytesPath:
@@ -151,13 +194,13 @@ class FileObject:
 		except FileNotFoundError:
 			return b""
 
-		return data
+		return FileObject.__decrypt_file(data)
 
 	def _write(self, data: bytes) -> None:
 		os.makedirs(self.dirname, exist_ok=True)
 
 		with open(self.__filepath, "wb") as f:
-			f.write(data)
+			f.write(FileObject.__encrypt_file(data))
 
 	def _delete(self, not_found_ok: bool = False) -> None:
 		if not_found_ok and not os.path.isfile(self.__filepath):
@@ -203,6 +246,8 @@ class AccessController:
 
 
 def main() -> None:
+	configure_logging(logger)
+
 	access_controller = AccessController()
 
 	db = get_db()
@@ -224,14 +269,21 @@ def main() -> None:
 			print("Invalid action")
 			action = input("Action (read/write/delete): ").lower()
 
-		if action == "read":
-			print(access_controller.read_file(file, user))
-		elif action == "write":
-			data = input("\n").encode("utf-8")
+		try:
+			if action == "read":
+				print(access_controller.read_file(file, user).decode("utf-8"))
+			elif action == "write":
+				data = input("\n").encode("utf-8")
 
-			access_controller.write_file(file, data, user)
-		elif action == "delete":
-			access_controller.delete_file(file, user)
+				access_controller.write_file(file, data, user)
+			elif action == "delete":
+				access_controller.delete_file(file, user)
+		except PermissionError as e:
+			logger.warning(
+				f"ACCESS DENIED: {user.username if user is not None else 'guest'} attempted {action.upper()} {file.filename}"
+			)
+
+			print(e.args[0])
 
 
 if __name__ == "__main__":
