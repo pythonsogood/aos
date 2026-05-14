@@ -208,11 +208,30 @@ def main() -> None:
 	db = get_db()
 	user = prompt_login(db)
 
-	file = FileObject(os.path.join("files", "test.txt"))
+	filename = ""
 
-	print(access_controller.read_file(file, user))
-	access_controller.write_file(file, b"qwe", user)
-	print(access_controller.read_file(file, user))
+	while filename != ".exit":
+		_filename = input("Filepath: ")
+
+		if _filename != "":
+			filename = _filename
+
+		file = FileObject(filename)
+
+		action = input("Action (read/write/delete): ").lower()
+
+		while action not in ("read", "write", "delete"):
+			print("Invalid action")
+			action = input("Action (read/write/delete): ").lower()
+
+		if action == "read":
+			print(access_controller.read_file(file, user))
+		elif action == "write":
+			data = input("\n").encode("utf-8")
+
+			access_controller.write_file(file, data, user)
+		elif action == "delete":
+			access_controller.delete_file(file, user)
 
 
 if __name__ == "__main__":
