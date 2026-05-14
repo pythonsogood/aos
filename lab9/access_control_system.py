@@ -1,9 +1,12 @@
+import os
 from typing import ClassVar, Iterator
 
 from secure_authentication import User, get_db, prompt_login
 
+type StrOrBytesPath = str | bytes | os.PathLike
 
-class Permission():
+
+class Permission:
 	READ: ClassVar[int] = 1 << 0
 	WRITE: ClassVar[int] = 1 << 1
 	DELETE: ClassVar[int] = 1 << 2
@@ -61,6 +64,23 @@ class Permission():
 		self.value = value
 		return self
 
+	def has(self, permission: Permission | int | str) -> bool:
+		if isinstance(permission, self.__class__):
+			for perm, value in permission:
+				if not value:
+					continue
+
+				if not getattr(self, perm):
+					return False
+
+			return True
+		elif isinstance(permission, int):
+			return (self.value & permission) == permission
+		elif isinstance(permission, str):
+			return getattr(self, permission)
+
+		return False
+
 	def __eq__(self, other: object) -> bool:
 		return isinstance(other, self.__class__) and self.value == other.value
 
@@ -83,10 +103,10 @@ class Permission():
 
 		raise TypeError
 
-	def __add__(self, other) -> Permission:
+	def __add__(self, other: object) -> Permission:
 		return self | other
 
-	def __sub__(self, other) -> Permission:
+	def __sub__(self, other: object) -> Permission:
 		if isinstance(other, self.__class__):
 			return self.__class__.from_value(self.value & ~other.value)
 		elif isinstance(other, int):
@@ -101,32 +121,52 @@ class Permission():
 		for name in ("read", "write", "delete"):
 			yield (name, getattr(self, name))
 
-	def __gte__(self, other) -> bool:
-		if isinstance(other, self.__class__):
-			for (permission, value) in other:
-				if not value:
-					continue
-
-				if not getattr(self, permission):
-					return False
-
-			return True
-		elif isinstance(other, int):
-			return (self & other) == other
-		elif isinstance(other, str):
-			return getattr(self, other)
-
-		raise TypeError
-
 	def __repr__(self) -> str:
 		return f"<{self.__class__.__name__} value={self.value}>"
 
 
-class FileObject():
-	pass
+class FileObject:
+	def __init__(self, filepath: StrOrBytesPath) -> None:
+		self.__filepath = os.path.normpath(filepath)
+
+		if os.path.exists(self.__filepath) and not os.path.isfile(self.__filepath):
+			raise ValueError("filepath cannot point to directory")
+
+	@property
+	def filepath(self) -> StrOrBytesPath:
+		return self.__filepath
+
+	@property
+	def filename(self) -> StrOrBytesPath:
+		return os.path.basename(self.__filepath)
+
+	@property
+	def dirname(self) -> StrOrBytesPath:
+		return os.path.dirname(self.__filepath)
+
+	def _read(self, not_found_ok: bool = False) -> bytes:
+		try:
+			with open(self.__filepath, "rb") as f:
+				data = f.read()
+		except FileNotFoundError:
+			return b""
+
+		return data
+
+	def _write(self, data: bytes) -> None:
+		os.makedirs(self.dirname, exist_ok=True)
+
+		with open(self.__filepath, "wb") as f:
+			f.write(data)
+
+	def _delete(self, not_found_ok: bool = False) -> None:
+		if not_found_ok and not os.path.isfile(self.__filepath):
+			return
+
+		os.remove(self.__filepath)
 
 
-class AccessController():
+class AccessController:
 	def __init__(self) -> None:
 		pass
 
@@ -139,31 +179,40 @@ class AccessController():
 
 		return Permission(read=True, write=True)
 
-	def has_permission(self, permission: Permission, user: User | None = None) -> bool:
+	def has_permission(self, permission: Permission | int | str, user: User | None = None) -> bool:
 		permissions = self.get_permissions(user)
+		return permissions.has(permission)
 
-		for (perm, value) in permission:
-			if not value:
-				continue
+	def read_file(self, file: FileObject, user: User | None = None) -> bytes:
+		if not self.has_permission(Permission.READ, user):
+			raise PermissionError("user has no access to read")
 
-			if not getattr(permissions, perm):
-				return False
+		return file._read(True)
 
-		return True
+	def write_file(self, file: FileObject, data: bytes, user: User | None = None) -> None:
+		if not self.has_permission(Permission.WRITE, user):
+			raise PermissionError("user has no access to write")
+
+		return file._write(data)
+
+	def delete_file(self, file: FileObject, user: User | None = None) -> None:
+		if not self.has_permission(Permission.DELETE, user):
+			raise PermissionError("user has no access to delete")
+
+		return file._delete(True)
 
 
 def main() -> None:
 	access_controller = AccessController()
 
-	permissions = Permission(read=True)
-	permissions.write = True
-
-	try_permissions = Permission(read=True, write=True)
-
 	db = get_db()
 	user = prompt_login(db)
 
-	print(access_controller.has_permission(try_permissions, user))
+	file = FileObject(os.path.join("files", "test.txt"))
+
+	print(access_controller.read_file(file, user))
+	access_controller.write_file(file, b"qwe", user)
+	print(access_controller.read_file(file, user))
 
 
 if __name__ == "__main__":

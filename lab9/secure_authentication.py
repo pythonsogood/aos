@@ -11,9 +11,11 @@ from typing import ClassVar
 
 import bcrypt
 
+type StrOrBytesPath = str | bytes | os.PathLike
+
 
 @dataclass()
-class User():
+class User:
 	CHECKSUM_SECRET: ClassVar[str] = r"0KTl~nI7Fasvo2DScbyXkOVAykXE1w%|"
 	MAX_ATTEMPTS: ClassVar[int] = 3
 	LOCK_DURATION: ClassVar[datetime.timedelta] = datetime.timedelta(seconds=10)
@@ -45,7 +47,7 @@ class User():
 		return hmac.new(
 			self.__class__.CHECKSUM_SECRET.encode("utf-8"),
 			f"{self.username}.{self.password_hash}.{self.lock}".encode("utf-8"),
-			digestmod=hashlib.sha256
+			digestmod=hashlib.sha256,
 		).hexdigest()
 
 	def update_checksum(self) -> None:
@@ -72,8 +74,9 @@ class User():
 	def dict_factory(x):
 		return {k: v for k, v in x if k != "username"}
 
-class Database():
-	def __init__(self, filepath: os.PathLike = "users.json") -> None:
+
+class Database:
+	def __init__(self, filepath: StrOrBytesPath = "users.json") -> None:
 		self.__filepath = os.path.normpath(filepath)
 		self.__lock = threading.Lock()
 
@@ -240,6 +243,7 @@ def prompt_login(db: Database) -> User | None:
 
 	return user
 
+
 def prompt_register(db: Database) -> User:
 	username = input("Username: ")
 	password = getpass("Password: ", echo_char="*")
@@ -253,7 +257,9 @@ def prompt_register(db: Database) -> User:
 
 	return user
 
+
 db = None
+
 
 def get_db() -> Database:
 	global db
@@ -262,6 +268,7 @@ def get_db() -> Database:
 		db = Database()
 
 	return db
+
 
 def main() -> None:
 	parser = argparse.ArgumentParser(
@@ -288,4 +295,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+	main()

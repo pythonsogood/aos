@@ -3,5 +3,6 @@ debug.log
 lab4/device_list.csv
 lab4/input.log
 lab9/users.json
+lab9/files/
 __pycache__/
 .ruff_cache/
