@@ -16,7 +16,7 @@ EXECUTABLE = (
 		("/T", "-1", "/NOBREAK"),
 	)
 	if os.name == "nt"
-	else (shutil.which("sleep") or os.path.join("/", "bin", "sleep"), ("-1",))
+	else (shutil.which("sleep") or os.path.join("/", "bin", "sleep"), ("infinity",))
 )
 
 
@@ -163,7 +163,7 @@ def calculate_stats(name: str, processes: Iterable[Process], busy_time: float, t
 
 
 def run_fcfs(processes: Iterable[Process]) -> SchedulerStats:
-	processes = sorted((p.clone() for p in processes), key=lambda p: (p.arrival_time, p.process_id))
+	processes = sorted(processes, key=lambda p: (p.arrival_time, p.process_id))
 	ready: Deque[Process] = deque()
 
 	idx = 0
@@ -181,7 +181,7 @@ def run_fcfs(processes: Iterable[Process]) -> SchedulerStats:
 			p.state = ProcessState.READY
 			ready.append(p)
 
-			logger.debug(f"Time {current_time}: Process {p} entered READY queue")
+			logger.info(f"Time {current_time}: Process {p} entered READY queue")
 
 			idx += 1
 
@@ -191,7 +191,7 @@ def run_fcfs(processes: Iterable[Process]) -> SchedulerStats:
 			current.state = ProcessState.RUNNING
 			current.execute()
 
-			logger.debug(f"Time {current_time}: Process {current} RUNNING")
+			logger.info(f"Time {current_time}: Process {current} RUNNING")
 
 		if current is not None:
 			tick_start = time.monotonic()
@@ -207,7 +207,7 @@ def run_fcfs(processes: Iterable[Process]) -> SchedulerStats:
 				current.terminate()
 				current.completion_time = current_time + 1
 
-				logger.debug(f"Time {current_time + 1}: Process {current} TERMINATED")
+				logger.info(f"Time {current_time + 1}: Process {current} TERMINATED")
 
 				current = None
 
@@ -223,7 +223,7 @@ def run_round_robin(processes: Iterable[Process], quantum: int = 2) -> Scheduler
 	if quantum <= 0:
 		raise ValueError("Quantum must be > 0")
 
-	processes = sorted((p.clone() for p in processes), key=lambda p: (p.arrival_time, p.process_id))
+	processes = sorted(processes, key=lambda p: (p.arrival_time, p.process_id))
 	ready: Deque[Process] = deque()
 
 	idx = 0
@@ -242,7 +242,7 @@ def run_round_robin(processes: Iterable[Process], quantum: int = 2) -> Scheduler
 			p.state = ProcessState.READY
 			ready.append(p)
 
-			logger.debug(f"Time {current_time}: Process {p} entered READY queue")
+			logger.info(f"Time {current_time}: Process {p} entered READY queue")
 
 			idx += 1
 
@@ -253,7 +253,7 @@ def run_round_robin(processes: Iterable[Process], quantum: int = 2) -> Scheduler
 			current.state = ProcessState.RUNNING
 			current.execute()
 
-			logger.debug(f"Time {current_time}: Process {current} RUNNING")
+			logger.info(f"Time {current_time}: Process {current} RUNNING")
 
 		if current is not None:
 			tick_start = time.monotonic()
@@ -272,7 +272,7 @@ def run_round_robin(processes: Iterable[Process], quantum: int = 2) -> Scheduler
 
 				current.completion_time = current_time + 1
 
-				logger.debug(f"Time {current_time + 1}: Process {current} TERMINATED")
+				logger.info(f"Time {current_time + 1}: Process {current} TERMINATED")
 
 				current = None
 			elif quantum_left == 0:
@@ -280,7 +280,7 @@ def run_round_robin(processes: Iterable[Process], quantum: int = 2) -> Scheduler
 				current.state = ProcessState.READY
 				ready.append(current)
 
-				logger.debug(f"Time {current_time + 1}: Time slice expired for {current} terminated")
+				logger.info(f"Time {current_time + 1}: Time slice expired for {current} terminated (re-queued)")
 
 				current = None
 
@@ -293,7 +293,7 @@ def run_round_robin(processes: Iterable[Process], quantum: int = 2) -> Scheduler
 
 
 def main() -> None:
-	logging.basicConfig(format="%(message)s", level=logging.DEBUG)
+	logging.basicConfig(format="%(message)s", level=logging.INFO)
 
 	workload: tuple[Process, ...] = (
 		Process(1, EXECUTABLE, 0, 4, 2),
@@ -304,15 +304,14 @@ def main() -> None:
 
 	quantum = 2
 
-	logging.debug("FCFS:")
-	stats_fcfs = run_fcfs(workload)
+	logger.info("FCFS:")
+	stats_fcfs = run_fcfs(p.clone() for p in workload)
 
-	logging.debug(f"\nRR (q={quantum}):")
-	stats_rr = run_round_robin(workload, quantum)
+	logger.info(f"RR (q={quantum}):")
+	stats_rr = run_round_robin((p.clone() for p in workload), quantum)
 
-	logging.info(
-		"\n"
-		+ tabulate(
+	logger.info(
+		tabulate(
 			(
 				(
 					stat.name,
