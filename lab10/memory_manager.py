@@ -1,4 +1,27 @@
-class MemoryManagerFirstFit:
+from abc import ABC, abstractmethod
+
+
+class MemoryManager(ABC):
+	@abstractmethod
+	def allocate(self, process_id: int, allocation_size: int) -> None: ...
+
+	@abstractmethod
+	def deallocate(self, process_id: int) -> int: ...
+
+	@property
+	@abstractmethod
+	def fragmentation_percent(self) -> float: ...
+
+	@property
+	@abstractmethod
+	def memory_map(self) -> list[tuple[int, int, str]]: ...
+
+	@property
+	@abstractmethod
+	def visualization(self) -> str: ...
+
+
+class MemoryManagerFirstFit(MemoryManager):
 	def __init__(self, total_memory: int, block_size: int) -> None:
 		if total_memory <= 0 or block_size <= 0:
 			raise ValueError("Memory sizes must be positive")
@@ -99,7 +122,7 @@ class MemoryManagerFirstFit:
 
 
 def main() -> None:
-	memory = MemoryManagerFirstFit(512, 32)
+	memory: MemoryManager = MemoryManagerFirstFit(512, 32)
 
 	requests: tuple[tuple[int, int], ...] = ((1, 120), (2, 80), (3, 100), (4, 64))
 

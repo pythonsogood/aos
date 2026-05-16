@@ -10,6 +10,14 @@ from typing import Deque, Iterable, NamedTuple
 from tabulate import tabulate
 
 logger = logging.getLogger(__name__)
+EXECUTABLE = (
+	(
+		shutil.which("timeout.exe") or os.path.join("C:", "Windows", "System32", "timeout.exe"),
+		("/T", "-1", "/NOBREAK"),
+	)
+	if os.name == "nt"
+	else (shutil.which("sleep") or os.path.join("/", "bin", "sleep"), ("-1",))
+)
 
 
 class ProcessState(Enum):
@@ -287,20 +295,11 @@ def run_round_robin(processes: Iterable[Process], quantum: int = 2) -> Scheduler
 def main() -> None:
 	logging.basicConfig(format="%(message)s", level=logging.DEBUG)
 
-	executable = (
-		(
-			shutil.which("timeout.exe") or os.path.join("C:", "Windows", "System32", "timeout.exe"),
-			("/T", "-1", "/NOBREAK"),
-		)
-		if os.name == "nt"
-		else (shutil.which("sleep") or os.path.join("/", "bin", "sleep"), ("-1",))
-	)
-
 	workload: tuple[Process, ...] = (
-		Process(1, executable, 0, 4, 2),
-		Process(2, executable, 1, 2, 1),
-		Process(3, executable, 2, 3, 3),
-		Process(4, executable, 4, 2, 2),
+		Process(1, EXECUTABLE, 0, 4, 2),
+		Process(2, EXECUTABLE, 1, 2, 1),
+		Process(3, EXECUTABLE, 2, 3, 3),
+		Process(4, EXECUTABLE, 4, 2, 2),
 	)
 
 	quantum = 2
